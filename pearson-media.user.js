@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Pearson+ eText Downloader (Media Bridge)
 // @namespace    https://github.com/chaevsfe/mgh
-// @version      2026.08.31.2
-// @description  Launches the Pearson exporter and anonymously fetches public Pearson media that normal page fetch is blocked from reading by CORS.
+// @version      2026.08.31.3
+// @description  Launches the Pearson exporter, recovers public Pearson media across CORS, and uses a low-overhead EPUB ZIP policy.
 // @match        https://plus.pearson.com/*
 // @run-at       document-start
 // @grant        GM_xmlhttpRequest
@@ -12,6 +12,7 @@
 // @connect      cite-media.pearson.com
 // @connect      media.pearsoncmg.com
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
+// @require      https://raw.githubusercontent.com/chaevsfe/mgh/main/pearson-fastzip.js
 // ==/UserScript==
 
 (() => {
@@ -22,7 +23,10 @@
   let launching = false;
   let lastProductPath = '';
 
-  try { if (typeof JSZip !== 'undefined' && !PAGE.JSZip) PAGE.JSZip = JSZip; } catch (_) {}
+  try {
+    if (typeof JSZip !== 'undefined' && !PAGE.JSZip) PAGE.JSZip = JSZip;
+    PAGE.__PEARSON_FASTZIP_PATCH__?.patch?.(PAGE.JSZip);
+  } catch (_) {}
 
   // Deliberately anonymous. No Pearson cookies, authorization header, or other
   // Reader credentials are sent to the cross-origin media hosts.
@@ -64,6 +68,7 @@
     if (!force && productPath && productPath === lastProductPath && PAGE.__PEARSON_DOWNLOADER__) return;
     launching = true;
     try {
+      try { PAGE.__PEARSON_FASTZIP_PATCH__?.patch?.(PAGE.JSZip); } catch (_) {}
       const source = await gmText(`${MAIN_URL}?t=${Date.now()}`);
       PAGE.eval(`${source}\n//# sourceURL=pearson-downloader.js`);
       lastProductPath = productPath;
