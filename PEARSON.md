@@ -1,131 +1,115 @@
 # Pearson+ eText Downloader
 
-`pearson.js` is a browser-side downloader/exporter for the current Pearson+ Vega Reader flow. It is separate from the McGraw Hill `script.js` because Pearson does not expose the book using the same EPUB-container layout.
+`pearson.js` is the Pearson+ Vega Reader exporter. Current version: **v2026.08.31.2**.
 
-Use it only for books and resources you are authorized to access. The script does not read, print, save, or ask you to paste cookies, bearer tokens, passwords, or other authentication credentials.
-
-## What the current Pearson Reader does
-
-From the current Reader traffic, Pearson uses several pieces:
-
-- A product/book UUID in URLs such as `/products/<book-id>/pages/...`.
-- A `contenttoc` response that contains the book title, nested chapter/section structure, `playOrder`, and content URIs such as `narrative/<uuid>.html`.
-- Same-origin Sanvan resources such as `/eps/sanvan/api/item/<item-id>/<version>/file/narrative/<uuid>.html`.
-- Additional referenced images, stylesheets, fonts, JSON, media, and interactive resources.
-
-Because `contenttoc` is cross-origin and authenticated, simply re-fetching its URL from DevTools can return CORS/401 errors. `pearson.js` therefore does **not** scrape or copy Pearson auth headers. Instead it tries to find the TOC in the already-running Reader state or captures a future successful `contenttoc` response made by Pearson itself.
-
-A console-loaded downloader is often installed **after** Pearson's startup `contenttoc` request has already completed. Browser Resource Timing can tell us that the request happened, but it does not expose the old response body. For that case, `pearson-loader.js` adds a one-click clipboard import on the waiting screen.
+Use it only with books and resources you are authorized to access. The downloader does not read, print, save, or ask for Pearson cookies, bearer tokens, passwords, or request authorization headers.
 
 ## Files
 
-- `pearson.js` — full Pearson+ downloader.
-- `pearson-loader.js` — public loader that fetches the newest `pearson.js` and adds the clipboard-TOC helper when needed.
+- `pearson.js` — main Pearson exporter.
+- `pearson-loader.js` — small console loader for the main script.
+- `pearson-media.user.js` — optional Tampermonkey/Violentmonkey version with an anonymous cross-origin media bridge for public Pearson image hosts.
 - `PEARSON.md` — this guide.
 
-## Recommended usage
+## Why Pearson is different from McGraw Hill
 
-1. Sign in to Pearson+ and open the actual eText Reader on `plus.pearson.com`.
-2. Turn at least one page so a normal `eps/sanvan/.../file/narrative/...` request has occurred.
-3. Open DevTools → Console.
-4. Paste `pearson-loader.js` and run it.
-5. If the downloader finds the full TOC in Pearson/React state, it will immediately show the export options.
-6. If it says it is waiting for the TOC, you have three options:
-   - If you already copied the JSON **response body** from Pearson's `/api/contenttoc/v1/assets` request, click **Use copied TOC JSON**. The loader reads the clipboard only after you click the button, verifies that it belongs to the current product, counts its narrative pages, and continues automatically.
-   - Click **Paste TOC JSON** and paste the same JSON response body manually.
-   - Leave the downloader open, navigate inside Pearson so the Reader makes a new `contenttoc` request, then click **Try again**.
-7. Choose EPUB or raw ZIP and start the download.
+Pearson's current Vega Reader exposes the book as a nested `contenttoc` structure plus individual Sanvan narrative resources such as:
 
-Do **not** copy request headers, cookies, bearer tokens, or authorization values. Only the JSON response body is needed for the manual/clipboard fallback.
-
-## One-line loader
-
-Use the loader rather than loading `pearson.js` directly so the clipboard helper is available:
-
-```javascript
-fetch('https://raw.githubusercontent.com/chaevsfe/mgh/main/pearson-loader.js?t='+Date.now(),{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(s=>(0,eval)(s)).catch(console.error)
+```text
+/eps/sanvan/api/item/<item-id>/<version>/file/narrative/<uuid>.html
 ```
 
-If the page blocks the loader with Content Security Policy, copy `pearson-loader.js` into the Console. If that still fails, copy `pearson.js` directly; its manual **Paste TOC JSON** fallback remains available.
+It does not expose the same ready-made EPUB `container.xml`/OPF package used by the McGraw Hill script. EPUB mode therefore constructs an EPUB 3 package from Pearson's ordered narrative pages and the resources those pages reference.
 
-## EPUB mode
+## Recommended: media userscript
 
-Pearson's current Vega content is a collection of narrative HTML/JSON resources rather than a directly exposed EPUB package. EPUB mode therefore builds a new EPUB 3 package around the resources Pearson serves to the authenticated Reader session.
+For the most complete EPUB, install `pearson-media.user.js` in Tampermonkey or Violentmonkey and open the Pearson+ book normally.
 
-It:
+The userscript:
 
-- Sorts narrative pages using Pearson `playOrder`.
-- Downloads the narrative HTML pages.
-- Crawls referenced Pearson images, CSS, fonts, and other assets when enabled.
-- Rewrites successfully downloaded resource links to local EPUB paths.
-- Converts downloaded HTML documents to XHTML-style serialization.
-- Creates `mimetype`, `META-INF/container.xml`, `OEBPS/content.opf`, and `OEBPS/nav.xhtml`.
-- Creates an EPUB spine from the narrative pages.
-- Adds `OEBPS/pearson-download-report.json` with failures and completeness counts.
+- Preloads JSZip so Pearson Content Security Policy cannot block it.
+- Launches the current `pearson.js` automatically when a `/products/...` Reader route opens.
+- Watches Pearson's SPA navigation so moving from the library into a book can launch without a full refresh.
+- Adds an anonymous media bridge for `cite-media.pearson.com` and `media.pearsoncmg.com`.
+- Sends **no Pearson cookies or authorization credentials** through that bridge. It is only intended to retrieve public media whose bytes are hidden from ordinary page JavaScript by browser CORS rules.
+- Also exposes a userscript menu command named **Launch Pearson Downloader**.
 
-JavaScript/interactive assets are disabled by default because many EPUB readers ignore scripts and complex embedded Pearson widgets may depend on web services that cannot be made fully offline. You can enable them from the downloader UI for experimentation.
+If you do not want a userscript, use `pearson-loader.js` in DevTools instead. The console version still exports all narrative pages it can access; media blocked by CORS remains as its original remote HTTPS reference rather than being rewritten to a broken local file.
 
-## Raw ZIP mode
+## TOC step
 
-Raw ZIP mode is useful when you want to inspect exactly what the Pearson Reader exposed. It saves downloaded resources without adding the EPUB package files.
+Pearson usually requests `/api/contenttoc/v1/assets` before a console-loaded script can observe the response body. If the downloader says it is waiting for the TOC:
 
-## TOC discovery
+1. Open DevTools → Network.
+2. Filter for `contenttoc`.
+3. Select `/api/contenttoc/v1/assets` — **not** the `page-mapping` request.
+4. Open **Response** and copy the entire JSON body.
+5. Click **Use copied TOC JSON** in the downloader.
 
-The downloader tries these routes in order:
+The same screen also has **Paste TOC JSON** as a fallback. Only the JSON response body is needed; never paste request headers or tokens.
 
-1. A `contenttoc` response captured after the downloader is installed.
-2. Pearson data already present in local/session storage.
-3. Embedded JSON in the page.
-4. Pearson/React Reader state reachable from the current same-origin page/frame.
-5. Clipboard/manual JSON response-body import as a fallback.
+## EPUB v2 improvements
 
-The script intentionally does not implement a token/header sniffer.
+The v2 exporter was hardened against issues found in the first Consumer Behavior test EPUB:
 
-### How to copy the TOC response body
+- Keeps remote URLs untouched when an asset download fails. It no longer rewrites failed images to nonexistent local EPUB paths.
+- Adds `media.pearsoncmg.com` to Pearson-owned asset crawling.
+- Removes XML-invalid control characters from narrative XHTML.
+- Standard EPUB mode strips web `<script>` elements, iframes, objects, embeds, refresh metadata, preconnect/prefetch hints, and inline event-handler attributes.
+- JavaScript/interactive asset crawling is now only meaningful for **Raw ZIP** mode; EPUB mode is intentionally cleaned for ordinary readers.
+- Builds `nav.xhtml` from Pearson's original nested chapter/module/section hierarchy instead of a flat 304-item list.
+- Detects a successfully downloaded cover image and marks it with the EPUB 3 `cover-image` manifest property.
+- Marks XHTML items that still contain HTTPS resources with the EPUB `remote-resources` property.
+- Verifies the generated EPUB begins with an uncompressed `mimetype` entry containing `application/epub+zip`.
+- Reports media-bridge downloads, remote resources left online, removed scripts/embeds, stripped XML control characters, and cover-image recovery.
 
-In Chrome/Brave DevTools:
+## Output modes
 
-1. Open **Network**.
-2. Search/filter for `contenttoc`.
-3. Select the request whose path ends in `/api/contenttoc/v1/assets` (not merely the page-mapping request).
-4. Open its **Response** tab.
-5. Copy the JSON response body.
-6. Return to the downloader and click **Use copied TOC JSON** or **Paste TOC JSON**.
+### EPUB
 
-A valid Pearson TOC normally has top-level fields such as `id`/`productId`, `title`, `children`, and `bookId`, with nested `uri` values such as `narrative/<uuid>.html`.
+EPUB mode creates:
 
-## Network behavior
+```text
+mimetype
+META-INF/container.xml
+OEBPS/content.opf
+OEBPS/nav.xhtml
+OEBPS/source/...
+OEBPS/external/...
+OEBPS/pearson-download-report.json
+```
 
-- Starts with up to six concurrent downloads.
-- Retries transient failures.
-- Honors `Retry-After` when present.
-- Reduces concurrency after `429`/`503` responses and raises it again after stable batches.
-- Rejects obvious `AccessDenied`/error documents returned in place of resources.
-- Restricts recursive asset crawling to Pearson-owned hosts referenced by book content.
-- Stops recursive crawling at a safety limit of 6,000 unique resource URLs.
+Narrative pages are sorted by Pearson `playOrder` and used to build the spine. The original nested TOC is used for navigation.
+
+### Raw ZIP
+
+Raw ZIP is for debugging or preserving more web-oriented source material. It does not add EPUB package files. If **Include JavaScript/interactive assets** is enabled, the crawler may retain resources that a normal EPUB reader would ignore.
 
 ## Final report
 
-The UI reports:
+The completion screen and `pearson-download-report.json` include:
 
-- Narrative pages found in the Pearson TOC.
-- Narrative pages successfully placed into the spine.
-- Total downloaded resources.
-- Total failed resources.
-- Missing narrative pages.
+- Narrative pages found and successfully placed in the spine.
+- Downloaded and failed resources.
+- Media-bridge download count.
+- Remote HTTPS resources still referenced by the exported pages.
+- XML-invalid control characters removed.
+- Web scripts and interactive embeds stripped from EPUB pages.
+- Cover image path when recovered.
+- EPUB mimetype/container-header validation.
 
-The full report remains available while the UI is open at:
+The report is also available while the UI is open at:
 
 ```javascript
 window.__PEARSON_DOWNLOADER__.lastReport
 ```
 
-## Current limitations
+## Notes on remote media
 
-Pearson books are not all authored the same way. Some titles contain interactive widgets, externally hosted media, dynamically generated TTS, or resources whose servers do not permit browser `fetch()` from the Reader origin. Those resources can remain online-only even when the narrative text itself exports successfully.
+Without `pearson-media.user.js`, some Pearson image servers may let the browser display an image while refusing a page-level `fetch()` because of CORS. v2 treats those as **remote resources**, not missing local resources. The EPUB may therefore need internet access for those images.
 
-The first thing to evaluate after each test is the final `Narrative pages: X/Y` count. `Y/Y` means the core ordered reading pages were all retrieved; failures among optional external widgets/media may still appear separately.
+With the userscript bridge, the exporter attempts to package public images from the two known Pearson media hosts locally. If a media server itself returns an authorization or error response, the exporter still rejects it and leaves the original reference remote instead of pretending the response is a valid image.
 
 ## Authorization and copyright
 
-Use this only with material you are authorized to access. Do not use it to bypass account permissions, DRM/access controls, or to redistribute copyrighted textbook content.
+Use this only with material you are authorized to access. Do not use it to bypass Pearson account permissions, DRM/access controls, or to redistribute copyrighted textbook content.
