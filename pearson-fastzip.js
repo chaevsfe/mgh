@@ -1,7 +1,7 @@
-// Pearson+ Direct STORE ZIP writer v2026.08.31.6
-// Loaded before pearson.js by the console loader/userscript.
-// Captures the original payload passed to JSZip.file(), corrects final EPUB
-// metadata, and writes a classic STORE-only ZIP without JSZip worker rebuilds.
+// Pearson+ ZIP writer v2026.08.31.6
+// Loads before pearson.js.
+// Keeps the bytes handed to JSZip.file() and writes a plain stored ZIP itself,
+// so JSZip never tries to recompress a few hundred images and stall.
 (() => {
   'use strict';
 

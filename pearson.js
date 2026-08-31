@@ -1,11 +1,11 @@
 /**
- * Pearson+ eText Downloader v2026.08.31.2
+ * Pearson+ downloader v2026.08.31.2
  * https://github.com/chaevsfe/mgh
  *
- * Packages resources already available to an authenticated Pearson+ Reader
- * session into EPUB or ZIP. It never reads, prints, or persists auth tokens.
- * Optional userscript support can fetch public Pearson media across CORS without
- * sending Pearson credentials to those media hosts.
+ * Saves a Pearson+ book you already have access to as an EPUB or ZIP.
+ * Run it on the Reader page while signed in. It never reads or stores
+ * cookies or tokens. The optional userscript fetches public Pearson
+ * images that CORS stops the page from reading itself.
  */
 (async () => {
   'use strict';
@@ -745,9 +745,9 @@
     c.append(el('p', 'The Reader session was found, but Pearson loaded the full TOC before this script could capture its response body.'));
     const steps = el('ol');
     for (const text of [
-      'In DevTools → Network, filter for contenttoc and select /api/contenttoc/v1/assets (not page-mapping).',
+      'In DevTools -> Network, filter for contenttoc and select /api/contenttoc/v1/assets (not page-mapping).',
       'Open the Response tab and copy the entire JSON response.',
-      'Click “Use copied TOC JSON” below.'
+      'Click "Use copied TOC JSON" below.'
     ]) steps.append(el('li', text));
     c.append(steps);
     const info = el('p', sanvan ? `Sanvan source detected: item ${sanvan.itemId}, version ${sanvan.itemVersion}.` : 'Turn one page first so a Sanvan narrative request appears.');
@@ -762,7 +762,7 @@
   function showPasteToc(productId, retry) {
     clear(`Pearson Downloader ${VERSION}`, 'Manual TOC fallback');
     const c = card();
-    c.append(el('p', 'Paste only the JSON response body from Pearson’s contenttoc request. Do not paste request headers, cookies, or tokens.'));
+    c.append(el('p', 'Paste only the JSON response body from the Pearson contenttoc request. Do not paste request headers, cookies, or tokens.'));
     const ta = el('textarea');
     Object.assign(ta.style, { width: '100%', height: '45vh', font: '12px ui-monospace,monospace', boxSizing: 'border-box' });
     c.append(ta);
@@ -795,8 +795,8 @@
     opts.append(media, scripts); c.append(opts);
 
     const bridge = el('p', typeof window.__PEARSON_MEDIA_FETCH__ === 'function'
-      ? 'Media bridge: detected — CORS-blocked public Pearson images can be recovered.'
-      : 'Media bridge: not detected — CORS-blocked images will remain as remote HTTPS references instead of broken local links.');
+      ? 'Media bridge: detected - CORS-blocked public Pearson images can be recovered.'
+      : 'Media bridge: not detected - CORS-blocked images will remain as remote HTTPS references instead of broken local links.');
     bridge.style.color = typeof window.__PEARSON_MEDIA_FETCH__ === 'function' ? '#067647' : '#8a6116'; c.append(bridge);
 
     const start = button('Start download', true); start.style.marginTop = '18px';
@@ -820,7 +820,7 @@
     controller = new AbortController();
     clear(`Pearson Downloader ${VERSION}`, meta.title);
 
-    const stat = card(), statusLine = el('strong', 'Preparing resources…'), counts = el('div', 'Downloaded 0 • Failed 0 • Queued 0');
+    const stat = card(), statusLine = el('strong', 'Preparing resources...'), counts = el('div', 'Downloaded 0 | Failed 0 | Queued 0');
     counts.style.marginTop = '6px'; stat.append(statusLine, counts); box.append(stat);
     const log = el('div');
     Object.assign(log.style, { marginTop: '12px', height: '55vh', overflow: 'auto', background: '#101217', color: '#e8eaed', borderRadius: '10px', padding: '12px', font: '12px/1.5 ui-monospace,monospace' });
@@ -844,7 +844,7 @@
       enqueue(url, /narrative\/.+\.html(?:$|[?#])/i.test(entry.uri) ? 'page' : 'toc-resource', entry.title);
     }
 
-    const update = () => { counts.textContent = `Downloaded ${ok} • Failed ${failed} • Queued ${queue.length}`; };
+    const update = () => { counts.textContent = `Downloaded ${ok} | Failed ${failed} | Queued ${queue.length}`; };
     update();
 
     async function processResource(task) {
@@ -876,7 +876,7 @@
 
     while (queue.length) {
       const batch = queue.splice(0, Math.min(concurrency, queue.length));
-      statusLine.textContent = `Downloading resources… concurrency ${concurrency}`;
+      statusLine.textContent = `Downloading resources... concurrency ${concurrency}`;
       const results = await Promise.all(batch.map(processResource));
       if (results.some((x) => x.throttled)) {
         concurrency = Math.max(1, Math.floor(concurrency / 2)); cleanBatches = 0;
@@ -887,7 +887,7 @@
       if (resources.size >= MAX_CRAWL) { line(`Crawl safety limit (${MAX_CRAWL}) reached.`, '#ffd37a'); break; }
     }
 
-    statusLine.textContent = 'Cleaning pages and rewriting successful local references…';
+    statusLine.textContent = 'Cleaning pages and rewriting successful local references...';
     let invalidXmlCharsRemoved = 0, scriptsRemoved = 0, embedsRemoved = 0;
     const remoteUrls = new Set();
     for (const item of resources.values()) {
@@ -939,11 +939,11 @@
     }
     zip.file(options.format === 'epub' ? 'OEBPS/pearson-download-report.json' : 'pearson-download-report.json', JSON.stringify(report, null, 2));
 
-    statusLine.textContent = 'Building archive…';
+    statusLine.textContent = 'Building archive...';
     const blob = await zip.generateAsync({
       type: 'blob', mimeType: options.format === 'epub' ? 'application/epub+zip' : 'application/zip',
       compression: 'DEFLATE', compressionOptions: { level: 6 }
-    }, (m) => { statusLine.textContent = `Building archive… ${Math.floor(m.percent)}%`; });
+    }, (m) => { statusLine.textContent = `Building archive... ${Math.floor(m.percent)}%`; });
 
     if (options.format === 'epub') report.epubContainerCheck = await validateEpubBlob(blob);
     const fileName = `${safeName(meta.title)}.${options.format}`;
@@ -977,7 +977,7 @@
     if (!narratives.length) throw new Error('Pearson TOC was found, but it contains no narrative HTML pages.');
     const title = tocHit.toc.title || `Pearson eText ${productId}`;
     const meta = { productId, sanvan, toc: tocHit.toc, tocSource: tocHit.source, title, entries, narratives };
-    status('Loading JSZip…');
+    status('Loading JSZip...');
     const JSZip = await loadJSZip();
     showOptions(meta, (options) => crawlAndBuild(JSZip, meta, options).catch((e) => {
       if (e.name === 'AbortError') fail('Download cancelled', new Error('The download was cancelled.'));
@@ -986,7 +986,7 @@
   }
 
   try {
-    status('Inspecting the open Pearson+ Reader…', 'The downloader does not read or export authentication tokens.');
+    status('Inspecting the open Pearson+ Reader...', 'The downloader does not read or export authentication tokens.');
     await initialize();
   } catch (e) {
     if (e.name === 'AbortError') app.close();

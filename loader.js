@@ -1,6 +1,6 @@
 /**
- * MGH Downloader loader
- * Run this on the open McGraw Hill Reader page.
+ * Loader for the McGraw Hill downloader.
+ * Run this on the Reader page with the book open.
  */
 (async () => {
   const url = `https://raw.githubusercontent.com/chaevsfe/mgh/main/script.js?t=${Date.now()}`;

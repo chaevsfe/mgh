@@ -1,9 +1,9 @@
 /**
- * MGH Downloader v2026.08.31.2
+ * McGraw Hill downloader v2026.08.31.2
  * https://github.com/chaevsfe/mgh
  *
- * Packages resources already available to your authenticated McGraw Hill
- * Reader session into an EPUB or ZIP. Use only for content you may access.
+ * Saves a book you already have access to as an EPUB or ZIP.
+ * Run it on the Reader page while signed in.
  */
 (async () => {
   'use strict';
@@ -600,12 +600,12 @@
     reportCard.append(heading);
 
     const summary = el('div',
-      `Manifest ${report.manifestResources} • Selected ${report.selectedResources} • Downloaded ${report.downloadedResources} • Failed ${report.failedResources} • Skipped ${report.skippedResources}`
+      `Manifest ${report.manifestResources} | Selected ${report.selectedResources} | Downloaded ${report.downloadedResources} | Failed ${report.failedResources} | Skipped ${report.skippedResources}`
     );
     reportCard.append(summary);
 
     const integrity = el('div',
-      `Spine errors ${report.brokenSpineReferences} • Path errors ${report.pathErrors} • Duplicate paths ${report.duplicateArchivePaths}`
+      `Spine errors ${report.brokenSpineReferences} | Path errors ${report.pathErrors} | Duplicate paths ${report.duplicateArchivePaths}`
     );
     integrity.style.marginTop = '4px';
     reportCard.append(integrity);
@@ -613,7 +613,7 @@
     if (report.format === 'epub') {
       const mimetypeStatus = report.mimetypeFirstAndStored === true ? 'yes' : report.mimetypeFirstAndStored === false ? 'NO' : 'pending';
       const epub = el('div',
-        `EPUB checks: container→OPF yes • mimetype first/uncompressed ${mimetypeStatus} • missing manifest resources ${report.missingManifest}`
+        `EPUB checks: container->OPF yes | mimetype first/uncompressed ${mimetypeStatus} | missing manifest resources ${report.missingManifest}`
       );
       epub.style.marginTop = '4px';
       reportCard.append(epub);
@@ -632,8 +632,8 @@
     clear(`MGH Downloader ${VERSION}`, pkg.title);
 
     const stat = card();
-    const statusLine = el('strong', 'Preparing download…');
-    const counts = el('div', 'Downloaded 0 • Repaired 0 • Skipped 0 • Failed 0');
+    const statusLine = el('strong', 'Preparing download...');
+    const counts = el('div', 'Downloaded 0 | Repaired 0 | Skipped 0 | Failed 0');
     counts.style.marginTop = '6px';
     stat.append(statusLine, counts);
     box.append(stat);
@@ -662,7 +662,7 @@
     let skipped = 0;
     let failed = 0;
     const update = () => {
-      counts.textContent = `Downloaded ${ok} • Repaired ${repaired} • Skipped ${skipped} • Failed ${failed}`;
+      counts.textContent = `Downloaded ${ok} | Repaired ${repaired} | Skipped ${skipped} | Failed ${failed}`;
     };
 
     const zip = new JSZip();
@@ -688,7 +688,7 @@
       }
     });
     update();
-    statusLine.textContent = `Downloading ${todo.length} resources…`;
+    statusLine.textContent = `Downloading ${todo.length} resources...`;
 
     await processAdaptive(todo, async ({ item, href, i }) => {
       try {
@@ -699,7 +699,7 @@
         ok++;
         if (result.repaired) {
           repaired++;
-          line(`[${i + 1}/${pkg.items.length}] repaired ${href} → ${result.url}`, '#7dd3fc');
+          line(`[${i + 1}/${pkg.items.length}] repaired ${href} -> ${result.url}`, '#7dd3fc');
         } else {
           line(`[${i + 1}/${pkg.items.length}] ok ${href}`, '#8de1a6');
         }
@@ -712,24 +712,24 @@
       update();
     }, (concurrency, reason) => {
       line(`network: concurrency ${concurrency} (${reason})`, '#c4b5fd');
-      statusLine.textContent = `Downloading… concurrency ${concurrency}`;
+      statusLine.textContent = `Downloading... concurrency ${concurrency}`;
     });
 
-    statusLine.textContent = 'Running final EPUB/archive integrity audit…';
+    statusLine.textContent = 'Running final EPUB/archive integrity audit...';
     const report = auditPackage(pkg, selectedItems, downloadedPaths, failedItems, skippedItems, format);
     console.info('[MGH Downloader] pre-build validation report', report);
-    statusLine.textContent = 'Building archive…';
+    statusLine.textContent = 'Building archive...';
     const blob = await zip.generateAsync({
       type: 'blob',
       mimeType: format === 'epub' ? 'application/epub+zip' : 'application/zip',
       compression: 'DEFLATE',
       compressionOptions: { level: 6 }
     }, (meta) => {
-      statusLine.textContent = `Building archive… ${Math.floor(meta.percent)}%`;
+      statusLine.textContent = `Building archive... ${Math.floor(meta.percent)}%`;
     });
 
     if (format === 'epub') {
-      statusLine.textContent = 'Verifying generated EPUB container…';
+      statusLine.textContent = 'Verifying generated EPUB container...';
       const epubCheck = await verifyGeneratedEpub(blob);
       report.mimetypeFirstAndStored = epubCheck.ok;
       if (!epubCheck.ok) report.warnings.push(`Generated EPUB mimetype check failed: ${epubCheck.reason}`);
@@ -749,18 +749,18 @@
     setTimeout(() => URL.revokeObjectURL(url), 30000);
 
     statusLine.textContent = report.ok
-      ? `Finished: ${name} — validation passed.`
-      : `Finished: ${name} — review validation warnings above.`;
+      ? `Finished: ${name} - validation passed.`
+      : `Finished: ${name} - review validation warnings above.`;
     cancel.textContent = 'Close';
     cancel.onclick = () => app.close();
   }
 
   try {
-    status('Loading JSZip…');
+    status('Loading JSZip...');
     const JSZip = await loadJSZip();
-    status('Finding the open McGraw Hill textbook…');
+    status('Finding the open McGraw Hill textbook...');
     const book = await discoverBook();
-    status('Reading EPUB metadata…');
+    status('Reading EPUB metadata...');
     const pkg = await readPackage(book.base);
     choose(pkg, book.via, (selected, format) => {
       download(JSZip, pkg, selected, format).catch((error) => {

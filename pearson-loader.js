@@ -1,7 +1,7 @@
 /**
- * Pearson+ downloader loader
- * Run this on plus.pearson.com while the eText Reader is open.
- * For CORS-blocked Pearson images, use pearson-media.user.js instead.
+ * Loader for the Pearson+ downloader.
+ * Run this on plus.pearson.com with the book open.
+ * Use pearson-media.user.js instead if you want the blocked images.
  */
 (async () => {
   const base = 'https://raw.githubusercontent.com/chaevsfe/mgh/main/';
