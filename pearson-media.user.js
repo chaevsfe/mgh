@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Pearson+ eText Downloader (Media Bridge)
 // @namespace    https://github.com/chaevsfe/mgh
-// @version      2026.08.31.3
-// @description  Launches the Pearson exporter, recovers public Pearson media across CORS, and uses a low-overhead EPUB ZIP policy.
+// @version      2026.08.31.4
+// @description  Launches the Pearson exporter, recovers public Pearson media across CORS, and uses a direct STORE-only ZIP writer.
 // @match        https://plus.pearson.com/*
 // @run-at       document-start
 // @grant        GM_xmlhttpRequest
@@ -12,7 +12,7 @@
 // @connect      cite-media.pearson.com
 // @connect      media.pearsoncmg.com
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
-// @require      https://raw.githubusercontent.com/chaevsfe/mgh/main/pearson-fastzip.js
+// @require      https://raw.githubusercontent.com/chaevsfe/mgh/main/pearson-fastzip.js?v=2026.08.31.4
 // ==/UserScript==
 
 (() => {
