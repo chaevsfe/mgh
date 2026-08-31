@@ -1,95 +1,88 @@
 # Pearson+ eText Downloader
 
-The recommended Pearson+ exporter stack is **v2026.08.31.6**:
+Saves a Pearson+ book you already have access to as an EPUB or ZIP.
 
-- `pearson.js` — Pearson Vega/Sanvan content discovery, cleanup, crawling, and EPUB construction.
-- `pearson-fastzip.js` — final EPUB metadata correction plus the direct STORE-only ZIP writer.
-- `pearson-loader.js` — console loader that loads the finalizer before `pearson.js`.
-- `pearson-media.user.js` — recommended Tampermonkey/Violentmonkey launcher with anonymous public-media recovery.
+It never reads, prints or asks for your Pearson cookies, tokens or passwords.
 
-Use it only with books and resources you are authorized to access. The downloader does not read, print, save, or ask for Pearson cookies, bearer tokens, passwords, or request authorization headers.
+The current stack is v2026.08.31.6:
 
-## Status
+- `pearson.js` - finds the book, crawls it, cleans it up and builds the EPUB
+- `pearson-fastzip.js` - fixes the final EPUB metadata and writes the ZIP
+- `pearson-loader.js` - console loader, loads the ZIP writer before `pearson.js`
+- `pearson-media.user.js` - Tampermonkey script, and the way I'd run it
 
-This implementation is considered stable for the Pearson+ Vega Reader / Sanvan flow tested here. The final Consumer Behavior validation reached the full ordered reading set, local media packaging, valid XHTML, valid OPF/spine references, recovered cover art, and a clean STORE-only EPUB archive.
+### Usage
 
-Different Pearson titles can still contain author-specific interactive widgets or other content models, so a new title may expose an edge case even when the core Reader architecture is the same.
+Install `pearson-media.user.js` in Tampermonkey or Violentmonkey and open the book
+normally. It starts itself on `/products/...` pages, and there is a menu command
+called **Launch Pearson Downloader** if you need it by hand.
 
-## Why Pearson is different from McGraw Hill
+The userscript also loads JSZip up front so Pearson's Content Security Policy
+cannot block it, follows the site's own page changes so going from the library
+into a book works without a refresh, and can pull images from
+`cite-media.pearson.com` and `media.pearsoncmg.com` that the page itself is not
+allowed to read. It sends no cookies or credentials to those hosts.
 
-Pearson's current Vega Reader exposes the book as a nested `contenttoc` structure plus individual Sanvan resources such as:
+If you would rather not install anything, paste `pearson-loader.js` into the
+Console. You still get every page you can reach, but images blocked by CORS stay
+as their original web links instead of being saved into the book.
+
+### The TOC step
+
+Pearson usually asks for `/api/contenttoc/v1/assets` before a pasted script is
+running, so there is nothing to listen to. If the downloader says it is waiting
+for the TOC:
+
+1. Open DevTools and go to Network
+2. Filter for `contenttoc`
+3. Click `/api/contenttoc/v1/assets`, not `page-mapping`
+4. Open Response and copy the whole JSON body
+5. Click **Use copied TOC JSON**
+
+**Paste TOC JSON** does the same thing if the clipboard route fails. Only the
+response body is needed. Never paste request headers or tokens.
+
+### Why this is not the McGraw Hill script
+
+McGraw Hill hands you something close to a finished EPUB, with a `container.xml`
+and an OPF you can read. Pearson does not. Its Reader exposes the book as a nested
+`contenttoc` plus separate resources like:
 
 ```text
 /eps/sanvan/api/item/<item-id>/<version>/file/narrative/<uuid>.html
 ```
 
-It does not expose the same ready-made EPUB `container.xml`/OPF package used by the McGraw Hill flow. EPUB mode therefore constructs an EPUB 3 package from Pearson's ordered narrative pages and the resources those pages reference.
+So EPUB mode builds the package itself out of Pearson's ordered pages and whatever
+those pages point at.
 
-## Recommended: media userscript
+### What EPUB mode does
 
-Install `pearson-media.user.js` in Tampermonkey or Violentmonkey and open the Pearson+ book normally.
+- Orders pages by Pearson's own `playOrder`
+- Builds `nav.xhtml` from the real chapter and section tree
+- Downloads the images, CSS, fonts and JSON the pages reference
+- Only rewrites a link to a local file after that file downloaded
+- Strips scripts, iframes, embeds, refresh tags and inline event handlers
+- Strips control characters that would make the XHTML invalid
+- Finds the cover and marks it properly
+- Marks a page `remote-resources` only when it really embeds something remote,
+  not just because it has a normal external link
+- Confirms the finished file starts with an uncompressed `mimetype` entry
 
-The userscript:
+### The ZIP writer
 
-- Preloads JSZip so Pearson Content Security Policy cannot block it.
-- Loads `pearson-fastzip.js` before the main exporter.
-- Launches the current `pearson.js` automatically on `/products/...` Reader routes.
-- Watches Pearson's SPA navigation so moving from the library into a book can launch without a full refresh.
-- Adds an anonymous media bridge for `cite-media.pearson.com` and `media.pearsoncmg.com`.
-- Sends **no Pearson cookies or authorization credentials** through that bridge. It is only intended to retrieve public media whose bytes are hidden from ordinary page JavaScript by browser CORS rules.
-- Exposes a userscript menu command named **Launch Pearson Downloader**.
+Big Pearson books hold hundreds of images that are already compressed. Asking
+JSZip to compress them again stalls the export.
 
-If you do not want a userscript, use `pearson-loader.js` in DevTools instead. The console version still exports all narrative pages it can access; media blocked by CORS remains at its original HTTPS URL instead of being rewritten to a broken local path.
+`pearson-fastzip.js` keeps the original bytes handed to `zip.file(...)` and writes
+a plain stored ZIP itself, computing the CRCs and writing the headers and central
+directory directly. It leaves `mimetype` stored as EPUB requires, and reports
+progress per file. Classic ZIP limits only, no ZIP64.
 
-## TOC step
+Diagnostics live at `window.__PEARSON_FASTZIP_PATCH__`.
 
-Pearson often requests `/api/contenttoc/v1/assets` before a console-loaded script can observe the response body. If the downloader says it is waiting for the TOC:
+### Output
 
-1. Open DevTools → Network.
-2. Filter for `contenttoc`.
-3. Select `/api/contenttoc/v1/assets` — **not** the `page-mapping` request.
-4. Open **Response** and copy the entire JSON body.
-5. Click **Use copied TOC JSON** in the downloader.
-
-The same screen also has **Paste TOC JSON** as a fallback. Only the JSON response body is needed; never paste request headers or tokens.
-
-## EPUB behavior
-
-EPUB mode:
-
-- Sorts narrative pages by Pearson `playOrder`.
-- Builds a hierarchical `nav.xhtml` from the original Pearson chapter/module/section tree.
-- Downloads referenced images, CSS, fonts, JSON, and other supported Pearson resources.
-- Uses the optional userscript media bridge for public Pearson image hosts that browser CORS prevents page JavaScript from reading directly.
-- Rewrites a reference to a local EPUB path only after that resource was downloaded successfully.
-- Removes XML-invalid control characters from narrative XHTML.
-- Strips Pearson/web `<script>` elements, iframes, objects, embeds, refresh metadata, preconnect/prefetch hints, and inline event handlers from normal EPUB pages.
-- Detects and marks a recovered cover image with the EPUB 3 `cover-image` manifest property.
-- Uses `remote-resources` only when an XHTML content document actually embeds a remote HTTP(S) resource.
-- Does **not** mark a page `remote-resources` merely because it contains a normal external `<a href="https://...">` hyperlink.
-- Keeps ordinary external hyperlinks intact and reports them separately from embedded remote resources.
-- Verifies the generated EPUB starts with an uncompressed `mimetype` entry containing `application/epub+zip`.
-
-## Direct STORE ZIP writer
-
-Large Pearson books can contain hundreds of already-compressed images. Recompressing those files in browser JavaScript caused JSZip generation to stall on large exports.
-
-`pearson-fastzip.js` therefore captures each original `zip.file(...)` payload and writes a classic STORE-only ZIP directly. It does not ask JSZip workers to recompress or re-materialize those resources during final archive generation.
-
-The direct writer:
-
-- Keeps the EPUB `mimetype` entry stored as required.
-- Emits per-entry build progress.
-- Computes CRC-32 values directly.
-- Writes local headers, central-directory records, and the end-of-central-directory record itself.
-- Supports classic ZIP limits; ZIP64 is intentionally not implemented.
-- Records `currentFile`, `capturedFiles`, and `fallbackReads` under `window.__PEARSON_FASTZIP_PATCH__` for diagnostics.
-
-## Output modes
-
-### EPUB
-
-EPUB mode creates:
+EPUB mode writes:
 
 ```text
 mimetype
@@ -101,36 +94,34 @@ OEBPS/external/...
 OEBPS/pearson-download-report.json
 ```
 
-### Raw ZIP
+Raw ZIP is for digging around or keeping the original web files. It does not add
+the EPUB package files, and with **Include JavaScript/interactive assets** on it
+will keep things no ebook reader will ever use.
 
-Raw ZIP is for debugging or preserving more web-oriented source material. It does not add EPUB package files. If **Include JavaScript/interactive assets** is enabled, the crawler may retain resources that a normal EPUB reader would ignore.
+### The report
 
-## Final report
+`OEBPS/pearson-download-report.json` covers the pages found and placed in the
+spine, what downloaded and what failed, how much came through the media bridge,
+embedded remote resources against plain external links, control characters
+removed, scripts stripped, whether the cover was recovered, and a final pass or
+check on the EPUB itself.
 
-`OEBPS/pearson-download-report.json` now distinguishes:
-
-- Narrative pages found and successfully placed in the spine.
-- Downloaded and failed resources.
-- Media-bridge download count.
-- **Embedded remote resources** that require EPUB `remote-resources` metadata.
-- **External hyperlinks** that do not require that metadata.
-- XML-invalid control characters removed.
-- Web scripts and interactive embeds stripped from EPUB pages.
-- Cover image recovery.
-- A final EPUB preflight PASS/CHECK object.
-
-The runtime report is also available while the UI is open at:
+While the window is open it is also at:
 
 ```javascript
 window.__PEARSON_DOWNLOADER__.lastReport
 ```
 
-The archive finalizer exposes its own diagnostics at:
+### How well it works
 
-```javascript
-window.__PEARSON_FASTZIP_PATCH__
-```
+This is stable on the Pearson+ Vega Reader as far as I have tested it. The last
+full run came out with every page in order, media saved locally, valid XHTML,
+valid spine references, the cover recovered and a clean archive.
 
-## Authorization and copyright
+Other titles can use author-specific widgets, so a new book can still surprise it
+even though the Reader underneath is the same.
 
-Use this only with material you are authorized to access. Do not use it to bypass Pearson account permissions, DRM/access controls, or to redistribute copyrighted textbook content.
+### Authorization
+
+Only use this for books you are allowed to read. Do not use it to get around
+account permissions or DRM, and do not redistribute what it saves.
