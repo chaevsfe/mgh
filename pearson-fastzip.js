@@ -1,15 +1,16 @@
-// Pearson+ Direct STORE ZIP writer v2026.08.31.5
+// Pearson+ Direct STORE ZIP writer v2026.08.31.6
 // Loaded before pearson.js by the console loader/userscript.
-// Captures the original payload passed to JSZip.file() and writes a classic
-// STORE-only ZIP directly, without JSZip workers or re-materializing ZipObjects.
+// Captures the original payload passed to JSZip.file(), corrects final EPUB
+// metadata, and writes a classic STORE-only ZIP without JSZip worker rebuilds.
 (() => {
   'use strict';
 
   const KEY = '__PEARSON_FASTZIP_PATCH__';
-  const VERSION = '2026.08.31.5';
+  const VERSION = '2026.08.31.6';
   if (window[KEY]?.version === VERSION) return;
 
   const encoder = new TextEncoder();
+  const decoder = new TextDecoder('utf-8', { fatal: false });
   const payloads = new WeakMap();
   const CRC_TABLE = (() => {
     const table = new Uint32Array(256);
@@ -27,7 +28,8 @@
     patch: null,
     capturedFiles: 0,
     fallbackReads: 0,
-    currentFile: null
+    currentFile: null,
+    finalization: null
   };
 
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -58,6 +60,156 @@
     }
     if (Array.isArray(value)) return Uint8Array.from(value);
     throw new Error(`Unsupported ZIP payload type: ${Object.prototype.toString.call(value)}`);
+  }
+
+  async function payloadText(saved) {
+    if (!saved) return '';
+    if (typeof saved.data === 'string' && !saved.options?.base64) return saved.data;
+    return decoder.decode(await toBytes(saved.data, saved.options));
+  }
+
+  function isRemoteUrl(value) {
+    return /^https?:\/\//i.test(String(value || '').trim());
+  }
+
+  function analyzeXhtml(text) {
+    const embedded = new Set();
+    const links = new Set();
+    try {
+      const doc = new DOMParser().parseFromString(String(text || ''), 'text/html');
+      for (const a of doc.querySelectorAll('a[href]')) {
+        const href = a.getAttribute('href');
+        if (isRemoteUrl(href)) links.add(href.trim());
+      }
+
+      const attrs = [
+        ['img', 'src'], ['source', 'src'], ['video', 'src'], ['video', 'poster'], ['audio', 'src'],
+        ['script', 'src'], ['iframe', 'src'], ['embed', 'src'], ['object', 'data'], ['input', 'src'],
+        ['image', 'href'], ['image', 'xlink:href'], ['use', 'href'], ['use', 'xlink:href']
+      ];
+      for (const [selector, attr] of attrs) {
+        for (const node of doc.querySelectorAll(`${selector}[${CSS.escape(attr)}]`)) {
+          const value = node.getAttribute(attr);
+          if (isRemoteUrl(value)) embedded.add(value.trim());
+        }
+      }
+
+      for (const node of doc.querySelectorAll('link[href]')) {
+        const href = node.getAttribute('href');
+        const rel = String(node.getAttribute('rel') || '').toLowerCase();
+        if (isRemoteUrl(href) && /(?:stylesheet|icon|preload)/.test(rel)) embedded.add(href.trim());
+      }
+
+      for (const node of doc.querySelectorAll('[srcset]')) {
+        for (const part of String(node.getAttribute('srcset') || '').split(',')) {
+          const candidate = part.trim().split(/\s+/)[0];
+          if (isRemoteUrl(candidate)) embedded.add(candidate);
+        }
+      }
+
+      const cssRemote = /url\(\s*['"]?(https?:\/\/[^)'"\s]+)[^)]*\)/gi;
+      for (const node of doc.querySelectorAll('[style]')) {
+        const style = node.getAttribute('style') || '';
+        let m; while ((m = cssRemote.exec(style))) embedded.add(m[1]);
+        cssRemote.lastIndex = 0;
+      }
+      for (const node of doc.querySelectorAll('style')) {
+        const style = node.textContent || '';
+        let m; while ((m = cssRemote.exec(style))) embedded.add(m[1]);
+        cssRemote.lastIndex = 0;
+      }
+    } catch (e) {
+      console.warn(`[Pearson DirectZIP ${VERSION}] XHTML remote-resource analysis failed:`, e);
+    }
+    return { embedded, links };
+  }
+
+  function removeRemoteResourcesProperty(tag) {
+    return tag.replace(/\sproperties="([^"]*)"/i, (whole, value) => {
+      const tokens = value.split(/\s+/).filter(Boolean).filter((x) => x !== 'remote-resources');
+      return tokens.length ? ` properties="${tokens.join(' ')}"` : '';
+    });
+  }
+
+  async function finalizeEpubPayloads(captured) {
+    const opfSaved = captured.get('OEBPS/content.opf');
+    if (!opfSaved) return null;
+
+    const perPage = new Map();
+    const embeddedAll = new Set();
+    const linksAll = new Set();
+
+    for (const [name, saved] of captured) {
+      if (!/\.x?html$/i.test(name)) continue;
+      const info = analyzeXhtml(await payloadText(saved));
+      perPage.set(name, info);
+      info.embedded.forEach((u) => embeddedAll.add(u));
+      info.links.forEach((u) => linksAll.add(u));
+    }
+
+    let opf = await payloadText(opfSaved);
+    let removedProperties = 0;
+    opf = opf.replace(/<item\b[^>]*>/gi, (tag) => {
+      if (!/\bremote-resources\b/.test(tag)) return tag;
+      const href = tag.match(/\bhref="([^"]+)"/i)?.[1];
+      if (!href) return tag;
+      const fullPath = `OEBPS/${href}`.replace(/\/\.\//g, '/');
+      const info = perPage.get(fullPath);
+      if (info && info.embedded.size === 0) {
+        removedProperties++;
+        return removeRemoteResourcesProperty(tag);
+      }
+      return tag;
+    });
+    opfSaved.data = opf;
+    opfSaved.options = {};
+
+    const reportSaved = captured.get('OEBPS/pearson-download-report.json');
+    let validation = null;
+    if (reportSaved) {
+      try {
+        const report = JSON.parse(await payloadText(reportSaved));
+        report.remoteResourceCount = embeddedAll.size;
+        report.remoteResourceUrls = [...embeddedAll];
+        report.remoteEmbeddedResourceCount = embeddedAll.size;
+        report.remoteEmbeddedResourceUrls = [...embeddedAll];
+        report.externalHyperlinkCount = linksAll.size;
+        report.externalHyperlinkUrls = [...linksAll];
+        report.remoteResourcesPropertiesRemoved = removedProperties;
+
+        validation = {
+          pass: Number(report.missingNarrativePages || 0) === 0 && Number(report.failed || 0) === 0,
+          narrativePages: `${report.spinePages || 0}/${report.narrativePages || 0}`,
+          failedDownloads: Number(report.failed || 0),
+          missingNarrativePages: Number(report.missingNarrativePages || 0),
+          remoteEmbeddedResources: embeddedAll.size,
+          externalHyperlinks: linksAll.size,
+          invalidXmlCharactersRemoved: Number(report.invalidXmlCharsRemoved || 0),
+          webScriptsRemoved: Number(report.scriptsRemoved || 0),
+          coverRecovered: !!report.coverImagePath
+        };
+        report.epubValidation = validation;
+        reportSaved.data = JSON.stringify(report, null, 2);
+        reportSaved.options = {};
+      } catch (e) {
+        console.warn(`[Pearson DirectZIP ${VERSION}] Could not update packaged report:`, e);
+      }
+    }
+
+    const result = {
+      remoteEmbeddedResources: embeddedAll.size,
+      externalHyperlinks: linksAll.size,
+      remoteResourcesPropertiesRemoved: removedProperties,
+      validation
+    };
+    state.finalization = result;
+    console.info(
+      `[Pearson DirectZIP ${VERSION}] EPUB metadata finalized: ` +
+      `embeddedRemote=${embeddedAll.size}, externalLinks=${linksAll.size}, ` +
+      `remote-resources removed=${removedProperties}, ` +
+      `validation=${validation?.pass ? 'PASS' : 'CHECK'}.`
+    );
+    return result;
   }
 
   async function crc32Async(bytes) {
@@ -109,6 +261,8 @@
     if (entries.length > 65535) throw new Error('Direct ZIP writer does not support more than 65,535 entries.');
 
     const captured = payloads.get(zip) || new Map();
+    if (captured.has('OEBPS/content.opf')) await finalizeEpubPayloads(captured);
+
     const chunks = [], central = [];
     let offset = 0, completed = 0;
 
@@ -122,12 +276,9 @@
       state.currentFile = name;
       const isDir = !!file.dir || name.endsWith('/');
 
-      // Advance visibly before touching the payload. If anything blocks, the
-      // console's currentFile identifies the exact entry.
       if (typeof onUpdate === 'function') {
         try { onUpdate({ percent: 1 + (completed / Math.max(1, entries.length)) * 93, currentFile: name }); } catch (_) {}
       }
-      console.debug(`[Pearson DirectZIP ${VERSION}] ${completed + 1}/${entries.length}: ${name}`);
       await tick();
 
       let data;
@@ -137,8 +288,6 @@
         const saved = captured.get(name);
         data = await toBytes(saved.data, saved.options);
       } else {
-        // This should only happen for unusual JSZip-created entries. Keep a
-        // compatibility fallback, but make it explicit in diagnostics.
         state.fallbackReads++;
         console.warn(`[Pearson DirectZIP ${VERSION}] Falling back to ZipObject.async for ${name}`);
         data = await file.async('uint8array');
