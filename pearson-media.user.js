@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Pearson+ eText Downloader (Media Bridge)
 // @namespace    https://github.com/chaevsfe/mgh
-// @version      2026.08.31.4
-// @description  Launches the Pearson exporter, recovers public Pearson media across CORS, and uses a direct STORE-only ZIP writer.
+// @version      2026.08.31.5
+// @description  Launches the Pearson exporter, recovers public Pearson media across CORS, and uses a captured-payload STORE-only ZIP writer.
 // @match        https://plus.pearson.com/*
 // @run-at       document-start
 // @grant        GM_xmlhttpRequest
@@ -12,7 +12,7 @@
 // @connect      cite-media.pearson.com
 // @connect      media.pearsoncmg.com
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
-// @require      https://raw.githubusercontent.com/chaevsfe/mgh/main/pearson-fastzip.js?v=2026.08.31.4
+// @require      https://raw.githubusercontent.com/chaevsfe/mgh/main/pearson-fastzip.js?v=2026.08.31.5
 // ==/UserScript==
 
 (() => {
@@ -28,8 +28,6 @@
     PAGE.__PEARSON_FASTZIP_PATCH__?.patch?.(PAGE.JSZip);
   } catch (_) {}
 
-  // Deliberately anonymous. No Pearson cookies, authorization header, or other
-  // Reader credentials are sent to the cross-origin media hosts.
   PAGE.__PEARSON_MEDIA_FETCH__ = function(url) {
     const u = new URL(String(url), PAGE.location.href);
     if (!['cite-media.pearson.com', 'media.pearsoncmg.com'].includes(u.hostname.toLowerCase())) {
@@ -82,8 +80,6 @@
 
   try { GM_registerMenuCommand('Launch Pearson Downloader', () => launch(true)); } catch (_) {}
 
-  // Pearson+ is an SPA, so detect navigation into another book without relying
-  // on a full browser refresh.
   setInterval(() => {
     const productPath = PAGE.location.pathname.match(/\/products\/[^/]+/)?.[0] || '';
     if (productPath && productPath !== lastProductPath && !PAGE.__PEARSON_DOWNLOADER__) launch(false);
