@@ -4,14 +4,25 @@
  * For CORS-blocked Pearson images, use pearson-media.user.js instead.
  */
 (async () => {
-  const url = `https://raw.githubusercontent.com/chaevsfe/mgh/main/pearson.js?t=${Date.now()}`;
+  const base = 'https://raw.githubusercontent.com/chaevsfe/mgh/main/';
+  const stamp = Date.now();
+
+  async function loadText(path) {
+    const response = await fetch(`${base}${path}?t=${stamp}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status} loading ${path}`);
+    return response.text();
+  }
+
   try {
-    const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const source = await response.text();
+    // Install the ZIP policy first. It polls briefly for JSZip, so it also works
+    // when pearson.js has to load JSZip after the downloader starts.
+    const fastZip = await loadText('pearson-fastzip.js');
+    (0, eval)(`${fastZip}\n//# sourceURL=pearson-fastzip.js`);
+
+    const source = await loadText('pearson.js');
     (0, eval)(`${source}\n//# sourceURL=pearson-downloader.js`);
   } catch (error) {
     console.error('[Pearson Downloader loader]', error);
-    alert(`Pearson Downloader could not load pearson.js: ${error.message}\n\nOpen the GitHub repository and paste pearson.js directly into DevTools, or use pearson-media.user.js with Tampermonkey/Violentmonkey.`);
+    alert(`Pearson Downloader could not start: ${error.message}\n\nOpen the GitHub repository and paste pearson.js directly into DevTools, or use pearson-media.user.js with Tampermonkey/Violentmonkey.`);
   }
 })();
