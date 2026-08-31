@@ -15,10 +15,12 @@ From the current Reader traffic, Pearson uses several pieces:
 
 Because `contenttoc` is cross-origin and authenticated, simply re-fetching its URL from DevTools can return CORS/401 errors. `pearson.js` therefore does **not** scrape or copy Pearson auth headers. Instead it tries to find the TOC in the already-running Reader state or captures a future successful `contenttoc` response made by Pearson itself.
 
+A console-loaded downloader is often installed **after** Pearson's startup `contenttoc` request has already completed. Browser Resource Timing can tell us that the request happened, but it does not expose the old response body. For that case, `pearson-loader.js` adds a one-click clipboard import on the waiting screen.
+
 ## Files
 
 - `pearson.js` — full Pearson+ downloader.
-- `pearson-loader.js` — small public loader that always fetches the newest `pearson.js` from this repository.
+- `pearson-loader.js` — public loader that fetches the newest `pearson.js` and adds the clipboard-TOC helper when needed.
 - `PEARSON.md` — this guide.
 
 ## Recommended usage
@@ -28,17 +30,23 @@ Because `contenttoc` is cross-origin and authenticated, simply re-fetching its U
 3. Open DevTools → Console.
 4. Paste `pearson-loader.js` and run it.
 5. If the downloader finds the full TOC in Pearson/React state, it will immediately show the export options.
-6. If it says it is waiting for the TOC, leave the downloader open, open Pearson's table of contents, jump to another chapter, or return to the Pearson library and reopen the book **without a full browser refresh**, then click **Try again**.
-7. If Pearson still does not expose the TOC to page state, use **Paste TOC JSON** and paste only the JSON response body from the `contenttoc` request. Do not paste request headers or tokens.
-8. Choose EPUB or raw ZIP and start the download.
+6. If it says it is waiting for the TOC, you have three options:
+   - If you already copied the JSON **response body** from Pearson's `/api/contenttoc/v1/assets` request, click **Use copied TOC JSON**. The loader reads the clipboard only after you click the button, verifies that it belongs to the current product, counts its narrative pages, and continues automatically.
+   - Click **Paste TOC JSON** and paste the same JSON response body manually.
+   - Leave the downloader open, navigate inside Pearson so the Reader makes a new `contenttoc` request, then click **Try again**.
+7. Choose EPUB or raw ZIP and start the download.
+
+Do **not** copy request headers, cookies, bearer tokens, or authorization values. Only the JSON response body is needed for the manual/clipboard fallback.
 
 ## One-line loader
 
+Use the loader rather than loading `pearson.js` directly so the clipboard helper is available:
+
 ```javascript
-fetch('https://raw.githubusercontent.com/chaevsfe/mgh/main/pearson.js?t='+Date.now(),{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(s=>(0,eval)(s)).catch(console.error)
+fetch('https://raw.githubusercontent.com/chaevsfe/mgh/main/pearson-loader.js?t='+Date.now(),{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(s=>(0,eval)(s)).catch(console.error)
 ```
 
-If the page blocks the loader with Content Security Policy, copy `pearson.js` itself into the Console.
+If the page blocks the loader with Content Security Policy, copy `pearson-loader.js` into the Console. If that still fails, copy `pearson.js` directly; its manual **Paste TOC JSON** fallback remains available.
 
 ## EPUB mode
 
@@ -69,9 +77,22 @@ The downloader tries these routes in order:
 2. Pearson data already present in local/session storage.
 3. Embedded JSON in the page.
 4. Pearson/React Reader state reachable from the current same-origin page/frame.
-5. Manual JSON response-body paste as a fallback.
+5. Clipboard/manual JSON response-body import as a fallback.
 
 The script intentionally does not implement a token/header sniffer.
+
+### How to copy the TOC response body
+
+In Chrome/Brave DevTools:
+
+1. Open **Network**.
+2. Search/filter for `contenttoc`.
+3. Select the request whose path ends in `/api/contenttoc/v1/assets` (not merely the page-mapping request).
+4. Open its **Response** tab.
+5. Copy the JSON response body.
+6. Return to the downloader and click **Use copied TOC JSON** or **Paste TOC JSON**.
+
+A valid Pearson TOC normally has top-level fields such as `id`/`productId`, `title`, `children`, and `bookId`, with nested `uri` values such as `narrative/<uuid>.html`.
 
 ## Network behavior
 
